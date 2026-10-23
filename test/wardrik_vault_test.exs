@@ -36,6 +36,12 @@ defmodule WardrikVaultTest do
     refute :erlang.term_to_binary(sealed) =~ "ghp_secret"
   end
 
+  test "says which vault isn't started" do
+    assert_raise ArgumentError, ~r/^MyApp.Missing isn't started/, fn ->
+      WardrikVault.fetch(MyApp.Missing, %WardrikCore.Principal{id: "user:jon"}, "github")
+    end
+  end
+
   test "gives a principal only what it holds", %{vault: vault} do
     {:ok, _vsn} = WardrikVault.put(vault, @acme, "github", "acme's")
 

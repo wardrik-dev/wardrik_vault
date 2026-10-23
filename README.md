@@ -19,11 +19,15 @@ The vault keeps its credentials in a [WardrikStore](https://hexdocs.pm/wardrik_s
 after the store, with a name and its keys:
 
 ```elixir
+store = WardrikStore.ETS.new(name: MyApp.Store)
+
 children = [
   {WardrikStore, store},
   {WardrikVault, name: MyApp.Vault, store: store, keys: [System.fetch_env!("VAULT_KEY")]}
 ]
 ```
+
+Every function takes the name you gave it, and raises saying so where it isn't started.
 
 Make a key with `WardrikVault.generate_key/0`. Values are sealed with AES-256-GCM. The first key
 seals, and any of them unseals. To rotate, put a new key first, and keep the old one behind it until
@@ -36,9 +40,15 @@ A credential belongs to a `WardrikCore.Principal`, by its `id`:
 ```elixir
 jon = %WardrikCore.Principal{id: "user:jon"}
 
-{:ok, _vsn} = WardrikVault.put(MyApp.Vault, jon, "github", "ghp_...")
+WardrikVault.put(MyApp.Vault, jon, "github", "ghp_...")
+#=> {:ok, 1}
+
 WardrikVault.fetch(MyApp.Vault, jon, "github")
 #=> {:ok, "ghp_..."}
+
+WardrikVault.lookup(MyApp.Vault, jon, "github")
+#=> {:ok, :secret, "ghp_...", 1}
+
 WardrikVault.list(MyApp.Vault)
 #=> [{"user:jon", "github", :secret}]
 ```

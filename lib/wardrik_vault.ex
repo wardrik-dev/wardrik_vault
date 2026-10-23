@@ -19,8 +19,8 @@ defmodule WardrikVault do
   alias WardrikCore.Principal
   alias WardrikVault.Sealed
 
-  @typedoc "A vault, by the name your app gave its process."
-  @type t() :: GenServer.name()
+  @typedoc "A vault, by the name your app gave it."
+  @type t() :: atom()
 
   @typedoc "A secret someone put in, or a grant someone gave by authorizing."
   @type kind() :: :secret | :grant
@@ -143,18 +143,34 @@ defmodule WardrikVault do
     decoded = Sealed.decode_keys(keys)
     if length(decoded) < length(keys), do: Logger.warning("A vault key isn't 32 bytes of base64")
 
-    {:ok,
-     %{
-       store: opts |> Keyword.fetch!(:store) |> WardrikStore.scope("wardrik_vault"),
-       keys: decoded,
-       grants: Keyword.fetch!(opts, :grants)
-     }}
+    settings = %{
+      store: opts |> Keyword.fetch!(:store) |> WardrikStore.scope("wardrik_vault"),
+      keys: decoded,
+      grants: Keyword.fetch!(opts, :grants)
+    }
+
+    table =
+      :ets.new(table(Keyword.fetch!(opts, :name)), [
+        :named_table,
+        :protected,
+        read_concurrency: true
+      ])
+
+    true = :ets.insert(table, {:settings, settings})
+    {:ok, table}
   end
 
-  @impl GenServer
-  def handle_call(:settings, _from, settings), do: {:reply, settings, settings}
+  defp settings(vault) do
+    [{:settings, settings}] = :ets.lookup(table(vault), :settings)
+    settings
+  rescue
+    ArgumentError ->
+      reraise ArgumentError,
+              "#{inspect(vault)} isn't started. Add {WardrikVault, name: #{inspect(vault)}, store: store, keys: keys} to your supervision tree, ahead of what uses it.",
+              __STACKTRACE__
+  end
 
-  defp settings(vault), do: GenServer.call(vault, :settings)
+  defp table(vault), do: Module.concat(vault, "Settings")
 
   defp has_keys([]), do: {:error, :no_key}
   defp has_keys(_keys), do: :ok
