@@ -8,19 +8,6 @@ defmodule WardrikVault do
       ]
 
       WardrikCore.start_agent(agent_id: "digest", model: "...", credentials: {WardrikVault, MyApp.Vault})
-
-  The vault's process holds the keys, so an agent carries only the vault's name, and its saved
-  state never holds a key. Values are sealed with AES-256-GCM. The first key seals, and any of
-  them unseals, so put a new key first and keep the old one behind it until nothing needs it.
-  Without a key, nothing is sealed or unsealed.
-
-  A credential belongs to a `WardrikCore.Principal`, by its `id`. A tool's call reads what the
-  principal it acts for holds, and nothing else. Nothing falls back from a person to their org.
-
-  Notice the vault seals values, not names. Anyone who can read the store can see which principal
-  holds a credential of which name.
-
-  Reach for this when tools need tokens and you want them encrypted at rest.
   """
 
   @behaviour WardrikCore.Credentials
