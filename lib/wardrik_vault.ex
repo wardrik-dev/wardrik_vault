@@ -74,6 +74,21 @@ defmodule WardrikVault do
     end
   end
 
+  @doc """
+  Unseals what `principal` holds as `name` in `store`, with `keys`, without a running vault: for
+  what has to read a secret before its vault starts, as a daemon reading its config does.
+  """
+  @spec read(WardrikStore.t(), [String.t()], Principal.t(), String.t()) ::
+          {:ok, binary()} | {:error, term()}
+  def read(store, keys, %Principal{} = principal, name) do
+    path = path(principal, name)
+
+    case WardrikStore.lookup(WardrikStore.scope(store, "wardrik_vault"), path) do
+      {%Sealed{} = sealed, _vsn} -> Sealed.unseal(sealed, Sealed.decode_keys(keys), path)
+      nil -> {:error, :not_found}
+    end
+  end
+
   @doc "Removes what `principal` holds as `name`. Removing nothing is `:ok`."
   @spec delete(t(), Principal.t(), String.t()) :: :ok | {:error, term()}
   def delete(vault, %Principal{} = principal, name),

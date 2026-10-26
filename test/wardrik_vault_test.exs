@@ -36,6 +36,20 @@ defmodule WardrikVaultTest do
     refute :erlang.term_to_binary(sealed) =~ "ghp_secret"
   end
 
+  test "reads a value from the store with its keys, without a running vault", %{
+    vault: vault,
+    store: store,
+    key: key
+  } do
+    {:ok, _vsn} = WardrikVault.put(vault, @jon, "github", "ghp_secret")
+
+    assert WardrikVault.read(store, [key], @jon, "github") == {:ok, "ghp_secret"}
+    assert WardrikVault.read(store, [key], @acme, "github") == {:error, :not_found}
+
+    assert WardrikVault.read(store, [WardrikVault.generate_key()], @jon, "github") ==
+             {:error, :undecipherable}
+  end
+
   test "says which vault isn't started" do
     assert_raise ArgumentError, ~r/^MyApp.Missing isn't started/, fn ->
       WardrikVault.fetch(MyApp.Missing, %WardrikCore.Principal{id: "user:jon"}, "github")
