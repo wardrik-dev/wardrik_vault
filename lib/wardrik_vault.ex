@@ -25,6 +25,11 @@ defmodule WardrikVault do
   @typedoc "A secret someone put in, or a grant someone gave by authorizing."
   @type kind() :: :secret | :grant
 
+  @typedoc "What an option holding a secret takes: the secret, or `{:secret, name}`, the deployment's."
+  @type value() :: String.t() | {:secret, String.t()} | nil
+
+  @deployment %Principal{id: "deployment"}
+
   @doc "Starts the vault. Takes `:name`, `:store`, `:keys`, and `:grants` as `{module, opts}`."
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -88,6 +93,32 @@ defmodule WardrikVault do
       nil -> {:error, :not_found}
     end
   end
+
+  @doc """
+  Returns the principal whose secrets are the deployment's own: the app's keys, and what its
+  options name with `{:secret, name}`. No agent works for it.
+  """
+  @spec deployment() :: Principal.t()
+  def deployment, do: @deployment
+
+  @doc """
+  Returns what an option holding a secret means: the deployment's secret `{:secret, name}` names,
+  unsealed as it's read, so a new one takes effect at once, or the value itself.
+
+      WardrikVault.value(MyApp.Vault, {:secret, "SLACK_SIGNING_SECRET"})
+      #=> {:ok, "8f14..."}
+  """
+  @spec value(t(), value()) :: {:ok, String.t() | nil} | {:error, term()}
+  def value(vault, {:secret, name}) when is_binary(name), do: fetch(vault, @deployment, name)
+  def value(_vault, value) when is_binary(value) or is_nil(value), do: {:ok, value}
+
+  @doc "Returns `value` as `value/2` does, from `store` and `keys`, without a running vault."
+  @spec read_value(WardrikStore.t(), [String.t()], value()) ::
+          {:ok, String.t() | nil} | {:error, term()}
+  def read_value(store, keys, {:secret, name}) when is_binary(name),
+    do: read(store, keys, @deployment, name)
+
+  def read_value(_store, _keys, value) when is_binary(value) or is_nil(value), do: {:ok, value}
 
   @doc "Removes what `principal` holds as `name`. Removing nothing is `:ok`."
   @spec delete(t(), Principal.t(), String.t()) :: :ok | {:error, term()}

@@ -73,6 +73,23 @@ The agent's saved state holds only that name, never a key. A tool's call reads w
 it acts for holds, and nothing else. Nothing falls back from a person to their org, so give an
 agent that works for your org a principal of its own.
 
+## The deployment's own secrets
+
+What isn't an agent owner's is the deployment's: your app's keys, like a model provider's, and the
+secrets your options would otherwise hold inline. Keep them under `WardrikVault.deployment/0`, a
+principal no agent works for, and name one in an option as `{:secret, name}`:
+
+```elixir
+{:ok, _vsn} = WardrikVault.put(MyApp.Vault, WardrikVault.deployment(), "SLACK_SIGNING_SECRET", secret)
+
+WardrikVault.value(MyApp.Vault, {:secret, "SLACK_SIGNING_SECRET"})
+#=> {:ok, "8f14..."}
+```
+
+`value/2` reads one as it's used, so a new one takes effect at once, and gives back a plain value
+as it is. `read_value/3` does the same without a running vault. A tool's credentials never resolve
+to one: they come from the agent's own principal.
+
 ## Grants
 
 A grant is a credential someone gives by authorizing an account, like an OAuth token. Give the

@@ -50,6 +50,29 @@ defmodule WardrikVaultTest do
              {:error, :undecipherable}
   end
 
+  test "reads an option's secret as the deployment's, as it's read, or takes the value as it is",
+       %{
+         vault: vault,
+         store: store,
+         key: key
+       } do
+    deployment = WardrikVault.deployment()
+    {:ok, _vsn} = WardrikVault.put(vault, deployment, "SIGNING", "old")
+
+    assert WardrikVault.value(vault, {:secret, "SIGNING"}) == {:ok, "old"}
+    assert WardrikVault.value(vault, "inline") == {:ok, "inline"}
+    assert WardrikVault.value(vault, nil) == {:ok, nil}
+    assert {:error, :not_found} = WardrikVault.value(vault, {:secret, "NONE"})
+
+    {:ok, _vsn} = WardrikVault.put(vault, deployment, "SIGNING", "new")
+    assert WardrikVault.value(vault, {:secret, "SIGNING"}) == {:ok, "new"}
+    assert WardrikVault.read_value(store, [key], {:secret, "SIGNING"}) == {:ok, "new"}
+    assert WardrikVault.read_value(store, [key], "inline") == {:ok, "inline"}
+
+    {:ok, _vsn} = WardrikVault.put(vault, %Principal{id: "acme"}, "OWN", "acme's")
+    assert {:error, :not_found} = WardrikVault.value(vault, {:secret, "OWN"})
+  end
+
   test "says which vault isn't started" do
     assert_raise ArgumentError, ~r/^MyApp.Missing isn't started/, fn ->
       WardrikVault.fetch(MyApp.Missing, %WardrikCore.Principal{id: "user:jon"}, "github")
