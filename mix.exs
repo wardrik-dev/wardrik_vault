@@ -8,7 +8,7 @@ defmodule WardrikVault.MixProject do
       elixir: "~> 1.20",
       description: "Credentials sealed at rest, for WardrikCore agents to call tools with.",
       package: package(),
-      docs: [main: "readme", extras: ["README.md"]],
+      docs: [main: "readme", extras: ["README.md", "CHANGELOG.md"]],
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
@@ -46,7 +46,7 @@ defmodule WardrikVault.MixProject do
     [
       licenses: ["Apache-2.0"],
       links: %{"GitHub" => "https://github.com/wardrik-dev/wardrik_vault"},
-      files: ~w(lib mix.exs README.md LICENSE)
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
