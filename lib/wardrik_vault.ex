@@ -1,13 +1,23 @@
 defmodule WardrikVault do
   @moduledoc """
-  A vault keeps credentials sealed in a `WardrikStore`, and gives them to a WardrikCore agent's tools.
+  Keeps credentials sealed in a `WardrikStore`, and gives them to WardrikCore agents' tools.
 
       children = [
         {WardrikStore, store},
         {WardrikVault, name: MyApp.Vault, store: store, keys: [System.fetch_env!("VAULT_KEY")]}
       ]
 
-      WardrikCore.start_agent(agent_id: "digest", model: "...", credentials: {WardrikVault, MyApp.Vault})
+      WardrikCore.start_agent(
+        agent_id: "digest",
+        model: "anthropic:claude-haiku-4-5",
+        principal: %WardrikCore.Principal{id: "user:jon"},
+        credentials: {WardrikVault, MyApp.Vault}
+      )
+
+  The vault implements `WardrikCore.Credentials`. A tool gets only what the agent's principal
+  holds.
+
+  Functions that take a vault raise `ArgumentError` if it isn't started.
   """
 
   @behaviour WardrikCore.Credentials
@@ -25,19 +35,49 @@ defmodule WardrikVault do
   @typedoc "A secret someone put in, or a grant someone gave by authorizing."
   @type kind() :: :secret | :grant
 
-  @typedoc "What an option holding a secret takes: the secret, or `{:secret, name}`, the deployment's."
+  @typedoc "An option that holds a secret: the secret itself, or `{:secret, name}` for one of the deployment's."
   @type value() :: String.t() | {:secret, String.t()} | nil
 
   @deployment %Principal{id: "deployment"}
 
-  @doc "Starts the vault. Takes `:name`, `:store`, `:keys`, and `:grants` as `{module, opts}`."
+  @doc """
+  Starts the vault.
+
+      WardrikVault.start_link(
+        name: MyApp.Vault,
+        store: store,
+        keys: [System.fetch_env!("VAULT_KEY"), System.fetch_env!("OLD_VAULT_KEY")]
+      )
+
+  Values are sealed with AES-256-GCM. The first key seals. Any key unseals. To rotate, put a new
+  key first and keep the old one until nothing needs it.
+
+  ## Options
+
+    * `:name` - required. What the vault is reached by.
+    * `:store` - required. The `WardrikStore` to keep credentials in.
+    * `:keys` - base64 keys from `generate_key/0`. `[]` unless set. Without keys, nothing is
+      sealed or unsealed. A key that isn't 32 bytes is dropped with a warning.
+    * `:grants` - `{module, opts}`, where `module` implements `WardrikVault.Grants`. `nil` unless
+      set.
+  """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     opts = Keyword.validate!(opts, [:name, :store, keys: [], grants: nil])
     GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
   end
 
-  @doc "Seals `value` as `name` for `principal`. Takes `kind:` and `if_vsn:`."
+  @doc """
+  Seals `value` as `name` for `principal`. Returns `{:ok, vsn}`, or `{:error, :no_key}` without
+  keys.
+
+      {:ok, vsn} = WardrikVault.put(MyApp.Vault, principal, "github", "ghp_...")
+
+  ## Options
+
+    * `:kind` - `:secret` or `:grant`. `:secret` unless set.
+    * `:if_vsn` - writes only over this version. See `WardrikStore.put/4`.
+  """
   @spec put(t(), Principal.t(), String.t(), binary(), kind: kind(), if_vsn: WardrikStore.vsn()) ::
           {:ok, WardrikStore.vsn()} | {:error, term()}
   def put(vault, %Principal{} = principal, name, value, opts \\ []) when is_binary(value) do
@@ -51,7 +91,14 @@ defmodule WardrikVault do
     end
   end
 
-  @doc "Unseals what `principal` holds as `name`."
+  @doc """
+  Returns the value `principal` holds as `name`, unsealed.
+
+      WardrikVault.fetch(MyApp.Vault, principal, "github")
+      #=> {:ok, "ghp_..."}
+
+  Returns `{:error, :not_found}` if there's none, and `{:error, :no_key}` without keys.
+  """
   @spec fetch(t(), Principal.t(), String.t()) :: {:ok, binary()} | {:error, term()}
   def fetch(vault, principal, name) do
     case lookup(vault, principal, name) do
@@ -61,7 +108,14 @@ defmodule WardrikVault do
     end
   end
 
-  @doc "Unseals what `principal` holds as `name`, with its kind and version."
+  @doc """
+  Returns what `principal` holds as `name`, unsealed, with its kind and version.
+
+      WardrikVault.lookup(MyApp.Vault, principal, "github")
+      #=> {:ok, :secret, "ghp_...", vsn}
+
+  Returns `{:error, kind, reason}` if the value is there but won't unseal.
+  """
   @spec lookup(t(), Principal.t(), String.t()) ::
           {:ok, kind(), binary(), WardrikStore.vsn()}
           | {:error, term()}
@@ -80,8 +134,13 @@ defmodule WardrikVault do
   end
 
   @doc """
-  Unseals what `principal` holds as `name` in `store`, with `keys`, without a running vault: for
-  what has to read a secret before its vault starts, as a daemon reading its config does.
+  Returns the value `principal` holds as `name`, without a running vault.
+
+  Use it to read a secret before the vault starts, such as while reading config. `store` and
+  `keys` are what the vault is started with.
+
+      WardrikVault.read(store, [System.fetch_env!("VAULT_KEY")], principal, "github")
+      #=> {:ok, "ghp_..."}
   """
   @spec read(WardrikStore.t(), [String.t()], Principal.t(), String.t()) ::
           {:ok, binary()} | {:error, term()}
@@ -95,24 +154,33 @@ defmodule WardrikVault do
   end
 
   @doc """
-  Returns the principal whose secrets are the deployment's own: the app's keys, and what its
-  options name with `{:secret, name}`. No agent works for it.
+  Returns the principal that holds the deployment's own secrets.
+
+  These are your app's keys, such as a model provider's, and the secrets options name with
+  `{:secret, name}`. No agent works for this principal.
+
+      {:ok, _vsn} = WardrikVault.put(MyApp.Vault, WardrikVault.deployment(), "SLACK_SIGNING_SECRET", secret)
   """
   @spec deployment() :: Principal.t()
   def deployment, do: @deployment
 
   @doc """
-  Returns what an option holding a secret means: the deployment's secret `{:secret, name}` names,
-  unsealed as it's read, so a new one takes effect at once, or the value itself.
+  Returns the secret an option holds.
 
       WardrikVault.value(MyApp.Vault, {:secret, "SLACK_SIGNING_SECRET"})
       #=> {:ok, "8f14..."}
+
+      WardrikVault.value(MyApp.Vault, "8f14...")
+      #=> {:ok, "8f14..."}
+
+  `{:secret, name}` reads the deployment's secret on each call, so a new one takes effect at once.
+  A string or `nil` is returned as it is.
   """
   @spec value(t(), value()) :: {:ok, String.t() | nil} | {:error, term()}
   def value(vault, {:secret, name}) when is_binary(name), do: fetch(vault, @deployment, name)
   def value(_vault, value) when is_binary(value) or is_nil(value), do: {:ok, value}
 
-  @doc "Returns `value` as `value/2` does, from `store` and `keys`, without a running vault."
+  @doc "Returns the secret an option holds, as `value/2` does, without a running vault. See `read/4`."
   @spec read_value(WardrikStore.t(), [String.t()], value()) ::
           {:ok, String.t() | nil} | {:error, term()}
   def read_value(store, keys, {:secret, name}) when is_binary(name),
@@ -120,12 +188,12 @@ defmodule WardrikVault do
 
   def read_value(_store, _keys, value) when is_binary(value) or is_nil(value), do: {:ok, value}
 
-  @doc "Removes what `principal` holds as `name`. Removing nothing is `:ok`."
+  @doc "Removes what `principal` holds as `name`. Returns `:ok`, also when there's nothing to remove."
   @spec delete(t(), Principal.t(), String.t()) :: :ok | {:error, term()}
   def delete(vault, %Principal{} = principal, name),
     do: vault |> settings() |> Map.fetch!(:store) |> WardrikStore.delete(path(principal, name))
 
-  @doc "Lists the names `principal` holds. Reads no credential and needs no key."
+  @doc "Returns the names `principal` holds. Needs no key."
   @spec names(t(), Principal.t()) :: [String.t()]
   def names(vault, %Principal{} = principal) do
     vault
@@ -134,7 +202,14 @@ defmodule WardrikVault do
     |> Enum.map(fn {_id, name, _kind} -> name end)
   end
 
-  @doc "Lists every credential as `{principal_id, name, kind}`. Reads no credential and needs no key."
+  @doc """
+  Returns every credential as `{principal_id, name, kind}`. Needs no key.
+
+      WardrikVault.list(MyApp.Vault)
+      #=> [{"user:jon", "github", :secret}]
+
+  Names aren't sealed. Anyone who can read the store can see who holds a credential of which name.
+  """
   @spec list(t()) :: [{String.t(), String.t(), kind()}]
   def list(vault) do
     %{store: store} = settings(vault)

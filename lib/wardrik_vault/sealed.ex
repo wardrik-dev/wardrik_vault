@@ -1,5 +1,5 @@
 defmodule WardrikVault.Sealed do
-  @moduledoc "A sealed value is a credential as the vault writes it, readable only with a key."
+  @moduledoc "A credential as the vault writes it. Only a key can unseal it."
 
   @enforce_keys [:kind, :nonce, :ciphertext, :tag]
   defstruct [:kind, :nonce, :ciphertext, :tag, version: 1]
@@ -16,7 +16,7 @@ defmodule WardrikVault.Sealed do
   @key_bytes 32
   @nonce_bytes 12
 
-  @doc "Seals `value` with `key`, bound to `path` and `kind` so it can't be moved or relabelled."
+  @doc "Seals `value` with `key`. Binds it to `path` and `kind`, so it can't be moved or relabelled."
   @spec seal(binary(), String.t(), :secret | :grant, binary()) :: t()
   def seal(key, path, kind, value) do
     nonce = :crypto.strong_rand_bytes(@nonce_bytes)
@@ -27,7 +27,12 @@ defmodule WardrikVault.Sealed do
     %__MODULE__{kind: kind, nonce: nonce, ciphertext: ciphertext, tag: tag}
   end
 
-  @doc "Unseals with the first of `keys` that opens it, or returns `{:error, :undecipherable}`."
+  @doc """
+  Unseals with the first of `keys` that opens it.
+
+  Returns `{:error, :undecipherable}` if none does, and `{:error, {:unknown_version, version}}`
+  for a version this release can't read.
+  """
   @spec unseal(t(), [binary()], String.t()) :: {:ok, binary()} | {:error, term()}
   def unseal(%__MODULE__{version: 1} = sealed, keys, path) do
     aad = aad(path, sealed.kind)
@@ -40,7 +45,7 @@ defmodule WardrikVault.Sealed do
   def unseal(%__MODULE__{version: version}, _keys, _path),
     do: {:error, {:unknown_version, version}}
 
-  @doc "Decodes base64 keys, keeping those that hold #{@key_bytes} bytes."
+  @doc "Decodes base64 keys. Drops any that don't hold #{@key_bytes} bytes."
   @spec decode_keys([String.t()]) :: [binary()]
   def decode_keys(keys), do: Enum.flat_map(keys, &decode_key/1)
 
