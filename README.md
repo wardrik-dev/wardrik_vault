@@ -106,10 +106,10 @@ vault a `WardrikVault.Grants` module to handle them:
 {WardrikVault, name: MyApp.Vault, store: store, keys: keys, grants: {MyApp.OAuth, opts}}
 ```
 
-When a tool needs a credential:
+When a tool needs a credential, the vault calls the module with a `WardrikVault.Grants.Request`:
 
-1. If the principal holds a grant, the vault calls the module's `renew/5`.
-2. If nobody holds it, the vault calls `ask/4`. It returns `{:authorize, url}`, and the tool's call
+1. If the principal holds a grant, the vault calls the module's `renew/2`.
+2. If nobody holds it, the vault calls `ask/2`. It returns `{:authorize, url}`, and the tool's call
    waits there.
 
 The module writes what it gets back with `WardrikVault.put/5` and `kind: :grant`. Pass `if_vsn:` so

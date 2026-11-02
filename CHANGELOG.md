@@ -11,6 +11,9 @@
 ### Breaking
 
 - `put/5` raises on a kind it doesn't know.
+- `WardrikVault.Grants` callbacks take a `WardrikVault.Grants.Request`, then their options:
+  `renew/2`, `ask/2` and `refused/2`. The vault implements `WardrikCore.Credentials` rc.2's
+  `resolve/2` and `refused/2`.
 
 ## 0.1.0-rc.1 (2026-10-30)
 

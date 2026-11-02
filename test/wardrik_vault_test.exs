@@ -1,6 +1,9 @@
 defmodule WardrikVaultTest do
   use ExUnit.Case, async: true
 
+  defp credential(name, principal),
+    do: %WardrikCore.Credentials.Request{name: name, principal: principal}
+
   import ExUnit.CaptureLog
 
   alias WardrikCore.Principal
@@ -168,18 +171,18 @@ defmodule WardrikVaultTest do
     test "resolves a secret", %{vault: vault} do
       {:ok, _vsn} = WardrikVault.put(vault, @jon, "github", "ghp_secret")
 
-      assert WardrikVault.resolve("github", @jon, vault) == {:ok, "ghp_secret"}
+      assert WardrikVault.resolve(credential("github", @jon), vault) == {:ok, "ghp_secret"}
     end
 
     test "renews a grant through its grants", %{vault: vault} do
       {:ok, vsn} = WardrikVault.put(vault, @jon, "github", "token", kind: :grant)
 
-      assert WardrikVault.resolve("github", @jon, vault) == {:ok, "renewed token"}
+      assert WardrikVault.resolve(credential("github", @jon), vault) == {:ok, "renewed token"}
       assert_received {:renew, "github", %{value: "token", vsn: ^vsn}}
     end
 
     test "asks for a name nobody holds", %{vault: vault} do
-      assert WardrikVault.resolve("github", @jon, vault) ==
+      assert WardrikVault.resolve(credential("github", @jon), vault) ==
                {:authorize, "https://example.com/authorize/github"}
 
       assert_received {:ask, "github", "user:jon"}
@@ -190,7 +193,8 @@ defmodule WardrikVaultTest do
       rotated = start_vault(store, [WardrikVault.generate_key()], {TestGrants, self()})
 
       assert capture_log(fn ->
-               assert {:authorize, _url} = WardrikVault.resolve("github", @jon, rotated)
+               assert {:authorize, _url} =
+                        WardrikVault.resolve(credential("github", @jon), rotated)
              end) =~ "asking again"
     end
 
@@ -198,18 +202,18 @@ defmodule WardrikVaultTest do
       {:ok, _vsn} = WardrikVault.put(vault, @jon, "github", "token", kind: :grant)
       {:ok, _vsn} = WardrikVault.put(vault, @jon, "linear", "secret")
 
-      assert :ok = WardrikVault.refused("github", @jon, vault)
-      assert :ok = WardrikVault.refused("linear", @jon, vault)
+      assert :ok = WardrikVault.refused(credential("github", @jon), vault)
+      assert :ok = WardrikVault.refused(credential("linear", @jon), vault)
       assert_received {:refused, "github"}
       refute_received {:refused, "linear"}
     end
 
     test "resolves nothing without a principal, or without grants", %{vault: vault, store: store} do
-      assert WardrikVault.resolve("github", nil, vault) == {:error, :no_principal}
-      assert WardrikVault.refused("github", nil, vault) == :ok
+      assert WardrikVault.resolve(credential("github", nil), vault) == {:error, :no_principal}
+      assert WardrikVault.refused(credential("github", nil), vault) == :ok
 
       plain = start_vault(store, [WardrikVault.generate_key()], nil)
-      assert WardrikVault.resolve("github", @jon, plain) == {:error, :not_found}
+      assert WardrikVault.resolve(credential("github", @jon), plain) == {:error, :not_found}
     end
 
     test "parks a tool's call on the sign-in its grants ask for", %{vault: vault} do

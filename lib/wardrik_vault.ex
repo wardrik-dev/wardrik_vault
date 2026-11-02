@@ -26,7 +26,9 @@ defmodule WardrikVault do
 
   require Logger
 
+  alias WardrikCore.Credentials
   alias WardrikCore.Principal
+  alias WardrikVault.Grants
   alias WardrikVault.Sealed
 
   @typedoc "A vault, by the name your app gave it."
@@ -251,21 +253,23 @@ defmodule WardrikVault do
   defdelegate generate_key, to: Sealed
 
   @impl WardrikCore.Credentials
-  def resolve(_name, nil, _vault), do: {:error, :no_principal}
+  def resolve(%Credentials.Request{principal: nil}, _vault), do: {:error, :no_principal}
 
-  def resolve(name, principal, vault) do
+  def resolve(%Credentials.Request{name: name, principal: principal}, vault) do
+    request = %Grants.Request{vault: vault, name: name, principal: principal}
+
     case lookup(vault, principal, name) do
       {:ok, :secret, value, _vsn} ->
         {:ok, value}
 
       {:ok, :grant, value, vsn} ->
-        grants(vault, :renew, [name, principal, %{value: value, vsn: vsn}])
+        grants(:renew, %{request | grant: %{value: value, vsn: vsn}})
 
       {:error, :not_found} ->
-        grants(vault, :ask, [name, principal])
+        grants(:ask, request)
 
       {:error, :grant, reason} ->
-        ask_again(vault, name, principal, reason)
+        ask_again(request, reason)
 
       {:error, _kind, reason} ->
         {:error, reason}
@@ -276,12 +280,15 @@ defmodule WardrikVault do
   end
 
   @impl WardrikCore.Credentials
-  def refused(_name, nil, _vault), do: :ok
+  def refused(%Credentials.Request{principal: nil}, _vault), do: :ok
 
-  def refused(name, principal, vault) do
+  def refused(%Credentials.Request{name: name, principal: principal}, vault) do
     case lookup(vault, principal, name) do
-      {:ok, :grant, _value, _vsn} -> grants(vault, :refused, [name, principal])
-      _secret_or_none -> :ok
+      {:ok, :grant, _value, _vsn} ->
+        grants(:refused, %Grants.Request{vault: vault, name: name, principal: principal})
+
+      _secret_or_none ->
+        :ok
     end
   end
 
@@ -326,17 +333,17 @@ defmodule WardrikVault do
   defp unsealed({:ok, value}, kind, vsn), do: {:ok, kind, value, vsn}
   defp unsealed({:error, reason}, kind, _vsn), do: {:error, kind, reason}
 
-  defp ask_again(vault, name, principal, reason) do
+  defp ask_again(%Grants.Request{name: name, principal: principal} = request, reason) do
     Logger.warning(
       "#{name} for #{principal.id} can't be unsealed (#{inspect(reason)}), so asking again"
     )
 
-    grants(vault, :ask, [name, principal])
+    grants(:ask, request)
   end
 
-  defp grants(vault, callback, args) do
+  defp grants(callback, %Grants.Request{vault: vault} = request) do
     case settings(vault).grants do
-      {module, opts} -> apply(module, callback, [vault | args] ++ [opts])
+      {module, opts} -> apply(module, callback, [request, opts])
       nil -> nothing_granted(callback)
     end
   end
