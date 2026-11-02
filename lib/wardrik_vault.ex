@@ -30,6 +30,7 @@ defmodule WardrikVault do
   alias WardrikCore.Principal
   alias WardrikVault.Grants
   alias WardrikVault.Sealed
+  alias WardrikVault.Secret
 
   @typedoc "A vault, by the name your app gave it."
   @type t() :: atom()
@@ -88,27 +89,38 @@ defmodule WardrikVault do
   end
 
   @doc """
-  Seals `value` as `name` for `principal`. Returns `{:ok, vsn}`, or `{:error, :no_key}` without
-  keys.
+  Seals the secret's value as its `name` for its `principal`. Returns `{:ok, vsn}`, or
+  `{:error, :no_key}` without keys.
 
-      {:ok, vsn} = WardrikVault.put(MyApp.Vault, principal, "github", "ghp_...")
+      {:ok, vsn} =
+        WardrikVault.put(MyApp.Vault, %WardrikVault.Secret{
+          principal: principal,
+          name: "github",
+          value: "ghp_..."
+        })
 
   ## Options
 
     * `:kind` - what it's for. See `t:kind/0`. `:secret` unless set.
     * `:if_vsn` - writes only over this version. See `WardrikStore.put/4`.
   """
-  @spec put(t(), Principal.t(), String.t(), binary(), kind: kind(), if_vsn: WardrikStore.vsn()) ::
+  @spec put(t(), Secret.t(), kind: kind(), if_vsn: WardrikStore.vsn()) ::
           {:ok, WardrikStore.vsn()} | {:error, term()}
-  def put(vault, %Principal{} = principal, name, value, opts \\ []) when is_binary(value) do
+  def put(vault, secret, opts \\ [])
+
+  def put(vault, %Secret{principal: %Principal{} = principal, name: name, value: value}, opts)
+      when is_binary(value) do
     {kind, opts} = Keyword.pop(opts, :kind, :secret)
     unless kind in @kinds, do: raise(ArgumentError, "#{inspect(kind)} isn't a vault kind")
     %{store: store, keys: keys} = settings(vault)
     path = path(principal, name)
 
     case keys do
-      [key | _rest] -> WardrikStore.put(store, path, Sealed.seal(key, path, kind, value), opts)
-      [] -> {:error, :no_key}
+      [key | _rest] ->
+        WardrikStore.put(store, path, Sealed.seal(value, key: key, path: path, kind: kind), opts)
+
+      [] ->
+        {:error, :no_key}
     end
   end
 
@@ -166,14 +178,15 @@ defmodule WardrikVault do
   Returns the value `principal` holds as `name`, without a running vault.
 
   Use it to read a secret before the vault starts, such as while reading config. `store` and
-  `keys` are what the vault is started with.
+  `:keys` are what the vault is started with.
 
-      WardrikVault.read(store, [System.fetch_env!("VAULT_KEY")], principal, "github")
+      WardrikVault.read(store, principal, "github", keys: [System.fetch_env!("VAULT_KEY")])
       #=> {:ok, "ghp_..."}
   """
-  @spec read(WardrikStore.t(), [String.t()], Principal.t(), String.t()) ::
+  @spec read(WardrikStore.t(), Principal.t(), String.t(), keys: [String.t()]) ::
           {:ok, binary()} | {:error, term()}
-  def read(store, keys, %Principal{} = principal, name) do
+  def read(store, %Principal{} = principal, name, args) do
+    keys = Keyword.fetch!(args, :keys)
     path = path(principal, name)
 
     case WardrikStore.lookup(WardrikStore.scope(store, "wardrik_vault"), path) do
@@ -188,7 +201,12 @@ defmodule WardrikVault do
   These are your app's keys, such as a model provider's, and the secrets options name with
   `{:secret, name}`. No agent works for this principal.
 
-      {:ok, _vsn} = WardrikVault.put(MyApp.Vault, WardrikVault.deployment(), "SLACK_SIGNING_SECRET", secret)
+      {:ok, _vsn} =
+        WardrikVault.put(MyApp.Vault, %WardrikVault.Secret{
+          principal: WardrikVault.deployment(),
+          name: "SLACK_SIGNING_SECRET",
+          value: secret
+        })
   """
   @spec deployment() :: Principal.t()
   def deployment, do: @deployment
@@ -213,7 +231,7 @@ defmodule WardrikVault do
   @spec read_value(WardrikStore.t(), [String.t()], value()) ::
           {:ok, String.t() | nil} | {:error, term()}
   def read_value(store, keys, {:secret, name}) when is_binary(name),
-    do: read(store, keys, @deployment, name)
+    do: read(store, @deployment, name, keys: keys)
 
   def read_value(_store, _keys, value) when is_binary(value) or is_nil(value), do: {:ok, value}
 

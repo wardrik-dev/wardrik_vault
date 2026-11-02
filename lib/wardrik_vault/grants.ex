@@ -13,7 +13,7 @@ defmodule WardrikVault.Grants do
 
   Each callback takes a `WardrikVault.Grants.Request`, then the module's `opts`.
 
-  Write what comes back from authorizing with `WardrikVault.put/5` and `kind: :grant`. Pass
+  Write what comes back from authorizing with `WardrikVault.put/3` and `kind: :grant`. Pass
   `:if_vsn` so two renewals never write over each other.
   """
 

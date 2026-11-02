@@ -42,7 +42,8 @@ A credential belongs to a `WardrikCore.Principal`, by its `id`:
 ```elixir
 jon = %WardrikCore.Principal{id: "user:jon"}
 
-{:ok, vsn} = WardrikVault.put(MyApp.Vault, jon, "github", "ghp_...")
+{:ok, vsn} =
+  WardrikVault.put(MyApp.Vault, %WardrikVault.Secret{principal: jon, name: "github", value: "ghp_..."})
 
 WardrikVault.fetch(MyApp.Vault, jon, "github")
 #=> {:ok, "ghp_..."}
@@ -83,7 +84,12 @@ model provider's, and secrets your options would otherwise hold inline.
 Keep them under `WardrikVault.deployment/0`. Name one in an option as `{:secret, name}`:
 
 ```elixir
-{:ok, _vsn} = WardrikVault.put(MyApp.Vault, WardrikVault.deployment(), "SLACK_SIGNING_SECRET", secret)
+{:ok, _vsn} =
+  WardrikVault.put(MyApp.Vault, %WardrikVault.Secret{
+    principal: WardrikVault.deployment(),
+    name: "SLACK_SIGNING_SECRET",
+    value: secret
+  })
 
 WardrikVault.value(MyApp.Vault, {:secret, "SLACK_SIGNING_SECRET"})
 #=> {:ok, "8f14..."}
@@ -112,5 +118,5 @@ When a tool needs a credential, the vault calls the module with a `WardrikVault.
 2. If nobody holds it, the vault calls `ask/2`. It returns `{:authorize, url}`, and the tool's call
    waits there.
 
-The module writes what it gets back with `WardrikVault.put/5` and `kind: :grant`. Pass `if_vsn:` so
+The module writes what it gets back with `WardrikVault.put/3` and `kind: :grant`. Pass `if_vsn:` so
 two renewals never write over each other.
